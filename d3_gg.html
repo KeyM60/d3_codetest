@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
+  <title>Open Targets Frontend Code Test</title>
+  <script src="https://d3js.org/d3.v4.min.js"></script>
+  <style>
+    .container {
+      display: flex;
+    }
+
+    .input_container {
+      text-align: center;
+    }
+
+    .rectangle {
+      fill: white;
+      stroke: red;
+    }
+
+    .line {
+      fill: red;
+    }
+
+    .text {
+      fill: blue;
+    }
+
+    .mouse_rectangle {
+      fill: royalblue;
+      stroke: blue;
+    }
+
+    .explain_rectangle {
+      fill: lightgray;
+    }
+
+    .click_rectangle {
+      fill: steelblue;
+      stroke: darkgreen;
+    }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+  <div class="container">
+    <span style="text-align: right; width: 10%">
+      <input type="checkbox" checked name="all" id="SORT1-201"> <br>
+      <input type="checkbox" checked name="all" id="SORT1-202"> <br>
+      <input type="checkbox" checked name="all" id="SORT1-203"> <br>
+      <input type="checkbox" checked name="all" id="SORT1-204"> <br>
+      <input type="checkbox" checked name="all" id="SORT1-205"> <br>
+      <input type="checkbox" checked name="all" id="SORT1-206"> <br>
+      <input type="checkbox" checked name="all" id="SORT1-207"> <br>
+      <input type="checkbox" checked name="all" id="SORT1-208"> <br>
+      <input type="checkbox" checked name="all" id="SORT1-209"> <br>
+      <input type="checkbox" name="all" id="SORT1-210"> <br>
+      <span style="padding-left: 120%; position:relative; display: flex;">
+        <input type="checkbox" id="all_SORT" onclick='selectAll(this)'>All
+      </span>
+    </span>
+    <svg id="graph" width="100%" height="270">
+      <g id="list_id" width="100" height="270"></g>
+      <g id="line"></g>
+      <g id="line_exon"></g>
+      <g id="line_text"></g>
+      <g id="xaxis"></g>
+      <g id="explain_exon"></g>
+      <g id="cut_chart"></g>
+
+    </svg>
+  </div>
+  <div style="position: relative; left: 33%;">
+
+    <input type="text" name="range" id="start" size="7" maxlength="9" value="109309568"
+      onKeyup="this.value=this.value.replace(/[^0-9]/g,'');" />
+    <input type="text" name="range" id="end" size="7" maxlength="9" value="109397918"
+      onKeyup="this.value=this.value.replace(/[^0-9]/g,'');" />
+    <button type="button" id="cut">Range</button>
+
+  </div>
+  <div>
+    <svg width="100%" height="200">
+      <g id="detail_explain"></g>
+    </svg>
+  </div>
+  <script>
+    function selectAll(selectAll) {   // All check_render
+      const checkboxes
+        = document.getElementsByName('all');
+
+      checkboxes.forEach((checkbox) => {
+        checkbox.checked = selectAll.checked;
+      });
+
+      return render('simpleGene');
+    }
+
+    function getJson() {
+      const response = fetch("https://rest.ensembl.org/lookup/id/ENSG00000134243?content-type=application/json;expand=1");
+      return response.then(res => res.json());
+    }
+
+    var width = window.innerWidth;
+    var height = window.innerHeight;
+
+    render = async (simpleGene) => {    // 메인
+      try {
+        gene = await getJson();
+
+        simpleGene = {          // data
+          'start': gene.start,
+          'end': gene.end,
+          'transcripts': gene.Transcript.sort((a, b) => {
+            return String(a.display_name).substring(6,)
+              - String(b.display_name).substring(6,);
+          }),
+        };
+
+        let newData;
+        let length = simpleGene.end - simpleGene.start;
+
+        const resizer = () => {  // 하단 좌표 1000단위
+          var xscale = d3.scaleLinear()
+            .domain([simpleGene.start / 1000, simpleGene.end / 1000])
+            .range([50, width * 0.6]);
+          d3.select('#xaxis')
+            .call(d3.axisBottom(xscale))
+            .attr('transform', 'translate(' + 50 + ',' + 230 + ')');
+
+          d3.select('#xaxis')
+            .append('text')
+            .text("(1000단위)")
+            .attr('transform', 'translate(' + width * 0.61 + ',' + 20 + ')')
+            .attr('font-size', '9px')
+            .attr('fill', 'black')
+
+        }
+        resizer();
+        window.addEventListener('resize', resizer);
+
+        list_text(simpleGene.transcripts);
+
+        d3.select('#SORT1-201').on('change', update);
+        d3.select('#SORT1-202').on('change', update);
+        d3.select('#SORT1-203').on('change', update);
+        d3.select('#SORT1-204').on('change', update);
+        d3.select('#SORT1-205').on('change', update);
+        d3.select('#SORT1-206').on('change', update);
+        d3.select('#SORT1-207').on('change', update);
+        d3.select('#SORT1-208').on('change', update);
+        d3.select('#SORT1-209').on('change', update);
+        d3.select('#SORT1-210').on('change', update);
+        update();
+        d3.select('#cut').on('click', () => cut_chart(simpleGene));
+
+
+        /*// ---------------------- function ------------------------- //*/
+
+        function update() {              // checked_newData
+          let checked_id = [];
+          let checkedBoxes = d3.selectAll('input[type=checkbox]:checked');
+          checkedBoxes.each(function () {
+            return checked_id.push(this.id);
+          });
+          console.log(checked_id);
+
+          let check_data = [];           // sorting checked_newData
+          for (m = 0; m < checked_id.length; m++) {
+            simpleGene.transcripts.filter((d, i) => {
+              if (d.display_name == checked_id[m]) {
+                return check_data.push(d);
+              }
+            });
+            newData = check_data;
+          }
+          if (checked_id = []) {         // past data delete
+            newData = check_data;
+          }
+
+          all_check();
+          clear();
+          line_create(newData, simpleGene);
+          line_exon(newData, simpleGene);
+          line_text(newData, simpleGene);
+
+          return newData = check_data;
+        };
+      }
+      catch (error) {
+        console.log(error);
+      }
+    }
+
+    render('simpleGene');
+  </script>
+
+  <script>
+    // ********* list_text - id *********
+    function list_text(data) {
+      d3.select('#list_id')
+        .selectAll('text')
+        .data(data)
+        .enter().append('text')
+        .text((d) => String(d.id))
+        .attr('y', (d, i) => {
+          return 21.5 * (i + 1) - 6.5;
+        })
+        .attr('font-size', '9px')
+        .attr('font-family', 'Noto Sans KR')
+        .attr('class', 'text_on');
+    };
+
+    // ********* line_text *********
+    function line_text(data, simpleGene) {
+      let length = simpleGene.end - simpleGene.start;
+      newText = d3.select('#line_text')
+        .selectAll('text')
+        .data(data)
+        .enter().append('text')
+        .text((d) => String(d.id).substring(9,))
+        .attr('x', (d) => {
+          return ((d.end - simpleGene.start) / length * (width * 0.6)) + 55;
+        })
+        .attr('y', (d, i) => {
+          return 21 * (i + 1) - 17;
+        })
+        .attr('font-size', '6px')
+        .attr('font-family', 'Do Hyeon')
+        .attr('fill', 'black');
+
+      newText.exit();
+    };
+
+    // ********* line *********
+    function line_create(data, simpleGene) {
+      let length = simpleGene.end - simpleGene.start;
+      newLine = d3.select('#line')
+        .selectAll('rect')
+        .data(data)
+        .enter().append('rect')
+        .attr('height', 2)
+        .attr('width', (d) => {
+          var line_width = d.end - d.start;
+          return line_width / length * (width * 0.6 - 50);
+        })
+        .attr('x', (d) => {
+          return (d.start - simpleGene.start) / length * (width * 0.6 - 50);
+        })
+        .attr('y', (d, i) => {
+          return (21.5 * (i + 1) - 11);
+        })
+        .attr('transform', 'translate(' + 100 + ',' + 0 + ')')
+        .attr('class', 'line');
+
+      newLine.exit();
+    };
+
+    // ********* line_exon (explain_data, detail_explain, explain_remove) *********
+    function line_exon(data, simpleGene) {
+      let length = simpleGene.end - simpleGene.start;
+      let isClicked = false;
+      let clicked_data = [];
+      
+      d3.selectAll('#line_exon')
+        .selectAll('g')
+        .data(data)
+        .enter().append('g')
+        .each(function (d, i) {
+          d3.select(this).selectAll('rect')
+            .data(d.Exon)
+            .enter().append('rect')
+            .attr('x', (d, j) => {
+              return (d.start - simpleGene.start) / length * (width * 0.6 - 50);
+            })
+            .attr('y', () => {
+              return 21.5 * (i + 1) - 17;
+            })
+            .attr('width', (d, j) => {
+              return (d.end - d.start) / length * (width * 0.6 - 50);
+            })
+            .attr('height', 14)
+            .attr('transform', 'translate(' + 100 + ',' + 0 + ')')
+            .attr('class', 'rectangle')
+            .on('mouseover', explain_data) // ???
+            .on('mouseout', delete_explain_data)
+            .on('click', detail_explain);
+        });
+
+
+      // ********* explain_data *********
+      function explain_data(data) {
+        if (!isClicked) {
+          d3.select(this).attr('class', 'mouse_rectangle');
+        }
+
+        let mouseXY = d3.mouse(this);
+
+        explain_exon = d3.select('#explain_exon')      // exon_box
+          .append('rect')
+          .attr('width', 75)
+          .attr('height', 48)
+          .attr('x', mouseXY[0] + 106)
+          .attr('y', mouseXY[1])
+          .attr('class', 'explain_rectangle');
+
+        explain_id = d3.select('#explain_exon')        // data - id
+          .append('text')
+          .text("id: " + data.id)
+          .attr('x', mouseXY[0] + 108)
+          .attr('y', mouseXY[1] + 10)
+          .attr('font-size', '7px')
+          .attr('class', 'text_on');
+
+        explain_assembly = d3.select('#explain_exon')  // data - assembly
+          .append('text')
+          .text("assembly: " + data.assembly_name)
+          .attr('x', mouseXY[0] + 108)
+          .attr('y', mouseXY[1] + 18)
+          .attr('font-size', '7px')
+          .attr('class', 'text_on');
+
+        explain_species = d3.select('#explain_exon')   // data - species
+          .append('text')
+          .text("species: " + data.species)
+          .attr('x', mouseXY[0] + 108)
+          .attr('y', mouseXY[1] + 26)
+          .attr('font-size', '7px')
+          .attr('class', 'text_on');
+
+        explain_db_type = d3.select('#explain_exon')   // data - db_type
+          .append('text')
+          .text("db_type: " + data.db_type)
+          .attr('x', mouseXY[0] + 108)
+          .attr('y', mouseXY[1] + 34)
+          .attr('font-size', '7px')
+          .attr('class', 'text_on');
+
+        explain_object_type = d3.select('#explain_exon')   // data - object_type
+          .append('text')
+          .text("object_type: " + data.object_type)
+          .attr('x', mouseXY[0] + 108)
+          .attr('y', mouseXY[1] + 42)
+          .attr('font-size', '7px')
+          .attr('class', 'text_on');
+      };
+
+      // ********* expain_remove *********
+      function delete_explain_data(data) {
+        if (!isClicked) {
+          d3.select(this).attr('class', 'rectangle');
+        }
+
+        explain_exon.remove();        // 1
+        explain_id.remove();          // 2
+        explain_assembly.remove();    // 3
+        explain_species.remove();     // 4
+        explain_db_type.remove();     // 5
+        explain_object_type.remove(); // 6
+      };
+
+      
+      // ********* detail_explain *********
+      function detail_explain(data) {
+
+        function clicked_data_check(data) {   // ********* clicked_data_check ********* 
+          if (clicked_data != false) {
+            detail_explain_draw_remove(data);
+            for (i = 0; i < clicked_data.length; i++) {
+              if (clicked_data[i] == data) {
+                clicked_data[i] = clicked_data[clicked_data.length-1];
+                clicked_data.pop();
+            
+                return isClicked = false;
+              }
+            }
+            clicked_data.push(data);
+            return isClicked = true;
+          }
+          else {
+            clicked_data.push(data);
+            return isClicked = true;
+          }
+        }
+        
+        clicked_data_check(data);
+
+        if (isClicked) {
+          console.log("true 데이터 삽입");
+          console.log(clicked_data);
+          d3.select(this).attr('class', 'click_rectangle');
+          detail_explain_draw(clicked_data);
+        }
+        else {
+          console.log("false 데이터 삭제");
+          console.log(clicked_data);
+          d3.select(this).attr('class', 'rectangle');
+          detail_explain_draw(clicked_data);
+        }
+      }
+
+      // ********* detail_explain_draw *********
+      function detail_explain_draw(data) {
+        data_rect = d3.select('#detail_explain')
+          .selectAll('rect')
+          .data(data)
+          .enter().append('rect')
+          .attr('width', 130)
+          .attr('height', 150)
+          .attr('x', (d, i) => {
+            return 150 * (i - 1);
+          })
+          .attr('y', 20)
+          .attr('class', 'click_rectangle')
+          .attr('transform', 'translate(' + 200 + ',' + 0 + ')');
+
+
+        data_list = d3.select('#detail_explain') // list
+          .selectAll('text')
+          .data(data)
+          .enter()
+          .append('text');
+
+        data_id = data_list.selectAll('text') // id
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "id: " + d.id)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 45)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+        data_assembly_name = data_list.selectAll('text') // assembly_name
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "assembly_name: " + d.assembly_name)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 55 + 1)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+        data_species = data_list.selectAll('text') // species
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "species: " + d.species)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 65 + 2)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+        data_db_type = data_list.selectAll('text') // db_type
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "db_type: " + d.db_type)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 75 + 3)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+        data_object_type = data_list.selectAll('text') // object_type
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "object_type: " + d.object_type)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 85 + 4)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+        data_version = data_list.selectAll('text') // version
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "version: " + d.version)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 95 + 5)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+        data_seq_region_name = data_list.selectAll('text') // seq_region_name
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "seq_region_name: " + d.seq_region_name)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 105 + 6)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+        data_start = data_list.selectAll('text') // start
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "start: " + d.start)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 115 + 7)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+        data_end = data_list.selectAll('text') // end
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "end: " + d.end)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 125 + 8)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+        data_strand = data_list.selectAll('text') // strand
+          .data(data)
+          .enter().append('tspan')
+          .text(d => "strand: " + d.strand)
+          .attr('x', (d, i) => {
+            return 55 + 150 * i;
+          })
+          .attr("y", 135 + 9)
+          .attr('font-size', '10px')
+          .attr('font-weight', 'bold');
+
+      };
+
+
+      // ********* detail_explain_draw_remove *********
+      function detail_explain_draw_remove(data) {
+        data_rect.remove();                   // rect
+        data_id.remove();                     // 1
+        data_assembly_name.remove();          // 2
+        data_species.remove();                // 3
+        data_db_type.remove();                // 4
+        data_object_type.remove();            // 5
+        data_version.remove();                // 6
+        data_seq_region_name.remove();        // 7
+        data_start.remove();                  // 8
+        data_end.remove();                    // 9
+        data_strand.remove();                 // 10
+        data_list.remove();                   // list
+      };
+
+    };
+
+    // ********* cut_chart *********
+    function cut_chart(simpleGene) {
+      let length = simpleGene.end - simpleGene.start;
+      let x_start = document.getElementById('start').value;
+      let x_end = document.getElementById('end').value;
+
+      if (x_start < 109309568 || x_start > 109397918
+        || x_end > 109397918 || x_end < 109309568 || x_start > x_end) {
+        return alert("유효 범위를 입력하세요.");
+      }
+
+      cut_chart_clear();
+
+      cut_start = d3.select('#cut_chart')
+        .append('rect')
+        .attr('width', (x_start - simpleGene.start) / length * (width * 0.6 - 50) + 1)
+        .attr('height', 220)
+        .attr('transform', 'translate(' + 99 + ',' + 0 + ')')
+        .style('fill', 'white');
+
+      cut_end = d3.select('#cut_chart')
+        .append('rect')
+        .attr('width', (simpleGene.end - x_end) / length * (width * 0.6 - 50) + 1)
+        .attr('height', 220)
+        .attr('x', (x_end - simpleGene.start) / length * (width * 0.6 - 50))
+        .attr('transform', 'translate(' + 100 + ',' + 0 + ')')
+        .style('fill', 'white');
+    };
+
+    // ********* cut_chart_remove *********
+    function cut_chart_clear() {        // cur_chart_clear
+      d3.select('#cut_chart').selectAll('rect').remove();
+    };
+
+    // ********* all_check, uncheck *********
+    function all_check() {
+      const checkedBoxes = document.getElementsByName('all');
+      let count = 0;
+      checkedBoxes.forEach((checkbox) => {
+        if (checkbox.checked == true) {
+          count++;
+          if (count == 10) {
+            console.log(count);
+            return d3.select('#all_SORT').property('checked', true);
+          }
+          else {
+            return d3.select('#all_SORT').property('checked', false);
+          }
+        };
+      });
+    };
+
+    // ********* chart_remove_(Re-render) *********
+    function clear() {
+      d3.select('#line').selectAll('rect').remove();
+      d3.select('#line_exon').selectAll('g').remove();
+      d3.select('#line_text').selectAll('text').remove();
+    };
+
+  </script>
+</body>
+
+</html>
